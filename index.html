@@ -1,47 +1,36 @@
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LEGO Shelf Finder — Voice Test V4</title>
-<style>
-:root{font-family:system-ui,-apple-system,Arial,sans-serif;color:#192334;background:#f3f5fa}body{margin:0;padding:20px;max-width:760px}h1{font-size:1.8rem}p{line-height:1.5}.controls{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0}button{background:#1768c1;color:white;border:0;border-radius:10px;padding:13px 17px;font-size:1rem}button:disabled{opacity:.45}.status{background:white;border-left:6px solid #aab3c0;border-radius:14px;padding:16px 20px;margin:18px 0}.status.live{border-color:#d22}.status.wait{border-color:#df9700}.status.error{border-color:#c33}.status strong{display:block;font-size:1.25rem}.status small{display:block;color:#4e5968;margin-top:4px}textarea{box-sizing:border-box;width:100%;height:220px;padding:15px;border:1px solid #aab3c0;border-radius:12px;font:1.1rem/1.5 system-ui;resize:vertical}label{font-weight:700}footer{margin-top:26px;color:#566172;font-size:.88rem}
-</style>
-</head>
-<body>
-<h1>LEGO Shelf Finder</h1>
-<p>Voice recognition test — <b>Version 4</b><br>Tap Start once, then Stop when finished.</p>
-<div class="controls"><button id="start">Start Recording</button><button id="stop" disabled>Stop Recording</button><button id="clear">Clear</button></div>
-<div id="status" class="status"><strong id="state">Ready</strong><small id="detail">Tap Start Recording.</small></div>
-<label for="output">Recognized speech</label><textarea id="output" placeholder="Your speech will appear here. You can also type corrections."></textarea>
-<footer>Recognition may briefly disconnect and reconnect. Interim words are shown but are not permanently added until finalized. If Brave ends a session, a short gap may occur. This page does not save inventory.</footer>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LEGO Shelf Finder Voice Diagnostic V5</title>
+<style>body{font:17px system-ui,Arial,sans-serif;background:#f3f5fa;color:#182335;margin:0;padding:20px;max-width:800px}h1{font-size:1.8rem}button,select{font:inherit;padding:12px;border-radius:10px;border:1px solid #aeb8c7}button{background:#1664ba;color:white;border:0;margin:4px 5px 4px 0}button:disabled{opacity:.45}label{display:block;font-weight:650;margin-top:16px}textarea{box-sizing:border-box;width:100%;height:175px;padding:12px;font:17px system-ui;border-radius:10px;border:1px solid #aeb8c7}#log{height:240px;font:12px ui-monospace,monospace}#status{padding:15px;background:white;border-left:6px solid #aeb8c7;border-radius:10px;margin:18px 0;white-space:pre-wrap}small{color:#536071}select{max-width:100%}</style></head><body>
+<h1>LEGO Shelf Finder</h1><p>Voice diagnostic — <strong>Version 5</strong></p>
+<label for="mode">Test mode</label><select id="mode"><option value="single">A — Continuous, no automatic restart</option><option value="restart">B — Continuous, automatic restart</option></select>
+<p><button id="start">Start Recording</button><button id="stop" disabled>Stop Recording</button><button id="clear">Clear</button></p>
+<div id="status" role="status">Ready.</div>
+<label for="transcript">Recognized speech (final + current interim)</label><textarea id="transcript" spellcheck="false"></textarea>
+<label for="log">Diagnostic log (copy this if the words repeat)</label><textarea id="log" readonly spellcheck="false"></textarea>
+<p><button id="copy">Copy diagnostic log</button></p><small>This diagnostic does not save inventory. Mode A may stop by itself; Mode B attempts to reconnect. The log shows browser result events and whether results are final or interim. No audio is recorded or saved by this page.</small>
 <script>
-(()=>{
-'use strict';
+(()=>{'use strict';
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-const startButton=document.getElementById('start'),stopButton=document.getElementById('stop'),clearButton=document.getElementById('clear');
-const output=document.getElementById('output'),state=document.getElementById('state'),detail=document.getElementById('detail'),status=document.getElementById('status');
-let wanted=false,recognition=null,retryTimer=null,attempts=0,session=0;
-let saved='',finalByIndex=new Map(),interim='',sessionCommitted=false;
-const normalize=s=>String(s||'').trim().replace(/\s+/g,' ');
-function setStatus(title,message,kind=''){state.textContent=title;detail.textContent=message;status.className='status '+kind;}
-function buttons(){startButton.disabled=wanted||!SR;stopButton.disabled=!wanted;}
-function show(){const finalized=[...finalByIndex.entries()].sort((a,b)=>a[0]-b[0]).map(x=>x[1]).filter(Boolean).join(' ');const text=[saved,finalized,interim].filter(Boolean).join(' ');output.value=normalize(text);}
-function commitSession(){if(sessionCommitted)return;sessionCommitted=true;const finalized=[...finalByIndex.entries()].sort((a,b)=>a[0]-b[0]).map(x=>x[1]).filter(Boolean).join(' ');saved=normalize([saved,finalized].filter(Boolean).join(' '));finalByIndex.clear();interim='';show();}
-function cancelRetry(){if(retryTimer!==null){clearTimeout(retryTimer);retryTimer=null;}}
-function stopCompletely(message,kind=''){wanted=false;cancelRetry();commitSession();buttons();setStatus('Stopped',message,kind);}
-function launch(){if(!wanted)return;cancelRetry();const id=++session;sessionCommitted=false;finalByIndex.clear();interim='';let r;
-try{r=new SR();recognition=r;r.lang='en-US';r.continuous=true;r.interimResults=true;r.maxAlternatives=1;
-r.onstart=()=>{if(id!==session)return;attempts=0;setStatus('Listening','Speak now. Tap Stop when finished.','live');};
-r.onresult=e=>{if(id!==session)return;attempts=0;for(let i=0;i<e.results.length;i++){const result=e.results[i];if(result.isFinal)finalByIndex.set(i,normalize(result[0]?.transcript));}for(const key of [...finalByIndex.keys()]){if(key>=e.results.length)finalByIndex.delete(key);}const interimParts=[];for(let i=0;i<e.results.length;i++){if(!e.results[i].isFinal)interimParts.push(normalize(e.results[i][0]?.transcript));}interim=normalize(interimParts.join(' '));show();};
-r.onerror=e=>{if(id!==session)return;const code=e.error||'unknown';if(['not-allowed','service-not-allowed','audio-capture'].includes(code)){stopCompletely('Microphone or speech service unavailable: '+code,'error');try{r.abort();}catch(_){}}else{setStatus('Recognition interrupted','Browser reported: '+code,'wait');}};
-r.onend=()=>{if(id!==session)return;commitSession();recognition=null;if(!wanted){setStatus('Stopped','Recording stopped by you.');return;}if(attempts>=6){stopCompletely('Browser ended recognition repeatedly. Tap Start to retry.','error');return;}attempts++;setStatus('Reconnecting','Recognition ended. Restarting ('+attempts+'/6)…','wait');retryTimer=setTimeout(()=>{retryTimer=null;if(wanted)launch();},Math.min(400*attempts,1800));};
-r.start();setStatus('Starting','Requesting microphone…','wait');
-}catch(e){if(id!==session)return;recognition=null;commitSession();if(!wanted)return;if(attempts>=6){stopCompletely('Could not restart recognition: '+e.message,'error');return;}attempts++;setStatus('Reconnecting','Could not start: '+e.message,'wait');retryTimer=setTimeout(()=>{retryTimer=null;if(wanted)launch();},600*attempts);}}
-startButton.addEventListener('click',()=>{if(!SR||wanted)return;saved=normalize(output.value);wanted=true;attempts=0;buttons();launch();});
-stopButton.addEventListener('click',()=>{if(!wanted)return;wanted=false;cancelRetry();buttons();setStatus('Stopping','Waiting for final speech results…','wait');if(recognition){try{recognition.stop();}catch(e){commitSession();setStatus('Stopped','Recording stopped by you.');}}else{commitSession();setStatus('Stopped','Recording stopped by you.');}});
-clearButton.addEventListener('click',()=>{saved='';finalByIndex.clear();interim='';output.value='';if(!wanted)setStatus('Ready','Transcript cleared.');});
-if(!SR)setStatus('Unavailable','This browser does not support the Web Speech API.','error');buttons();
+const $=id=>document.getElementById(id),start=$('start'),stop=$('stop'),clear=$('clear'),mode=$('mode'),status=$('status'),out=$('transcript'),log=$('log');
+let desired=false,rec=null,token=0,timer=null,completed=[],results=[],sessionNumber=0,events=0,failures=0,stopRequested=false;
+const clean=s=>String(s||'').replace(/\s+/g,' ').trim();
+function note(s){log.value+=`[${new Date().toLocaleTimeString()}] ${s}\n`;log.scrollTop=log.scrollHeight;}
+function state(s){status.textContent=s;}
+function buttons(){start.disabled=desired||!SR;stop.disabled=!desired;mode.disabled=desired;}
+function render(){const current=results.map(x=>x.text).filter(Boolean).join(' ');out.value=[...completed,current].filter(Boolean).join(' ').trim();}
+function finishSession(){const finalized=results.filter(x=>x.final).map(x=>x.text).filter(Boolean).join(' ');if(finalized)completed.push(finalized);results=[];render();}
+function cancel(){if(timer!==null){clearTimeout(timer);timer=null;}}
+function launch(){if(!desired)return;cancel();const my=++token;sessionNumber++;events=0;results=[];let r;try{r=new SR();rec=r;r.lang='en-US';r.continuous=true;r.interimResults=true;r.maxAlternatives=1;
+r.onstart=()=>{if(my!==token)return;failures=0;state('Listening — session '+sessionNumber);note('START session '+sessionNumber);};
+r.onresult=e=>{if(my!==token)return;events++;const list=[];for(let i=0;i<e.results.length;i++){const x=e.results[i];list.push({text:clean(x[0]?.transcript),final:x.isFinal});}results=list;render();note(`RESULT session=${sessionNumber} event=${events} resultIndex=${e.resultIndex} length=${e.results.length} `+JSON.stringify(list.map((x,i)=>({i,final:x.final,text:x.text}))));};
+r.onerror=e=>{if(my!==token)return;note('ERROR '+e.error);state('Speech error: '+e.error);if(['not-allowed','service-not-allowed','audio-capture'].includes(e.error)){desired=false;cancel();buttons();try{r.abort();}catch(_){}}};
+r.onend=()=>{if(my!==token)return;note('END session '+sessionNumber+' (stopRequested='+stopRequested+')');finishSession();rec=null;if(!desired){state(stopRequested?'Stopped by you.':'Stopped.');buttons();return;}if(mode.value==='single'){desired=false;buttons();state('Browser ended session. Mode A does not restart.');return;}if(++failures>6){desired=false;buttons();state('Stopped: too many restart attempts.');return;}state('Reconnecting — browser ended the session…');timer=setTimeout(()=>{timer=null;if(desired)launch();},600);};
+r.start();state('Starting microphone…');note('START REQUEST session '+sessionNumber);
+}catch(err){note('START ERROR '+err.message);state('Unable to start: '+err.message);rec=null;desired=false;buttons();}}
+start.onclick=()=>{if(!SR||desired)return;completed=out.value.trim()?[out.value.trim()]:[];results=[];desired=true;stopRequested=false;failures=0;buttons();note('USER tapped Start; mode='+mode.value);launch();};
+stop.onclick=()=>{if(!desired)return;desired=false;stopRequested=true;cancel();buttons();note('USER tapped Stop');state('Stopping…');if(rec){try{rec.stop();}catch(err){note('STOP ERROR '+err.message);finishSession();state('Stopped by you.');}}else{state('Stopped by you.');}};
+clear.onclick=()=>{if(desired){note('Clear pressed while listening; transcript cleared');}completed=[];results=[];out.value='';log.value='';};
+$('copy').onclick=async()=>{try{await navigator.clipboard.writeText(log.value);state('Diagnostic log copied.');}catch(e){log.focus();log.select();state('Select and copy the diagnostic log manually.');}};
+if(!SR)state('Speech recognition is unavailable in this browser.');buttons();
 })();
-</script>
-</body>
-</html>
+</script></body></html>
