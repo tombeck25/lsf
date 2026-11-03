@@ -1,180 +1,46 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LEGO Shelf Finder — Voice Test V3</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LEGO Shelf Finder — Voice Test V4</title>
 <style>
-:root{font-family:system-ui,-apple-system,sans-serif;color:#192333;background:#f4f6fa}body{max-width:650px;margin:24px auto;padding:0 18px}h1{font-size:1.6rem}p{line-height:1.45}.controls{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}button{font:inherit;border:0;border-radius:10px;padding:13px 16px;background:#1766c2;color:#fff;cursor:pointer}button:disabled{opacity:.45;cursor:default}#stop:not(:disabled){background:#bb2933}.status{background:#fff;border-radius:12px;padding:14px 16px;margin:12px 0 20px;border-left:6px solid #aab3bf;min-height:52px}.status.live{border-left-color:#0d9b62}.status.retry{border-left-color:#d18a08}.status.error{border-left-color:#bd2832}.status strong{display:block;font-size:1.12rem}.status small{display:block;margin-top:5px;color:#566071}label{font-weight:700;display:block;margin:14px 0 6px}textarea{box-sizing:border-box;width:100%;min-height:220px;padding:13px;font:inherit;border:1px solid #a5aab3;border-radius:10px;line-height:1.45}#interim{min-height:22px;color:#555;margin:8px 0 0;font-style:italic}small{color:#566071}.tip{font-size:.9rem;margin-top:18px}
+:root{font-family:system-ui,-apple-system,Arial,sans-serif;color:#192334;background:#f3f5fa}body{margin:0;padding:20px;max-width:760px}h1{font-size:1.8rem}p{line-height:1.5}.controls{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0}button{background:#1768c1;color:white;border:0;border-radius:10px;padding:13px 17px;font-size:1rem}button:disabled{opacity:.45}.status{background:white;border-left:6px solid #aab3c0;border-radius:14px;padding:16px 20px;margin:18px 0}.status.live{border-color:#d22}.status.wait{border-color:#df9700}.status.error{border-color:#c33}.status strong{display:block;font-size:1.25rem}.status small{display:block;color:#4e5968;margin-top:4px}textarea{box-sizing:border-box;width:100%;height:220px;padding:15px;border:1px solid #aab3c0;border-radius:12px;font:1.1rem/1.5 system-ui;resize:vertical}label{font-weight:700}footer{margin-top:26px;color:#566172;font-size:.88rem}
 </style>
 </head>
 <body>
 <h1>LEGO Shelf Finder</h1>
-<p>Voice recognition test — <strong>Version 3</strong><br>Tap Start once, then tap Stop when finished.</p>
-<div class="controls">
-<button id="start">Start Recording</button>
-<button id="stop" disabled>Stop Recording</button>
-<button id="clear">Clear</button>
-</div>
-<div id="status" class="status" role="status" aria-live="polite"><strong id="statusTitle">Checking speech recognition…</strong><small id="statusDetail"></small></div>
-<label for="output">Recognized speech</label>
-<textarea id="output" placeholder="Recognized words will appear here. You can also type here."></textarea>
-<div id="interim" aria-live="off"></div>
-<p class="tip"><small>Keep this page open while speaking. The browser may briefly stop listening and reconnect. Recognition may require internet access. This test does not save recordings or inventory. Repeated spoken numbers may be legitimate; review the transcript.</small></p>
+<p>Voice recognition test — <b>Version 4</b><br>Tap Start once, then Stop when finished.</p>
+<div class="controls"><button id="start">Start Recording</button><button id="stop" disabled>Stop Recording</button><button id="clear">Clear</button></div>
+<div id="status" class="status"><strong id="state">Ready</strong><small id="detail">Tap Start Recording.</small></div>
+<label for="output">Recognized speech</label><textarea id="output" placeholder="Your speech will appear here. You can also type corrections."></textarea>
+<footer>Recognition may briefly disconnect and reconnect. Interim words are shown but are not permanently added until finalized. If Brave ends a session, a short gap may occur. This page does not save inventory.</footer>
 <script>
 (()=>{
 'use strict';
-const startBtn=document.getElementById('start');
-const stopBtn=document.getElementById('stop');
-const clearBtn=document.getElementById('clear');
-const output=document.getElementById('output');
-const interim=document.getElementById('interim');
-const status=document.getElementById('status');
-const statusTitle=document.getElementById('statusTitle');
-const statusDetail=document.getElementById('statusDetail');
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-let recognition=null;
-let wanted=false; // True until the user taps Stop.
-let running=false;
-let starting=false;
-let restartTimer=null;
-let retryCount=0;
-let sessionFinal=''; // Final phrases from the current browser recognition session.
-let seenFinals=new Map(); // Track finalized results within the session.
-let clearGeneration=0;
-let committed=''; // Text from completed sessions, including manually edited text at Start.
-let fatal=false;
-const MAX_RETRIES=6;
-function setStatus(title,detail='',kind=''){
- status.className='status'+(kind?' '+kind:'');
- statusTitle.textContent=title;
- statusDetail.textContent=detail;
-}
-function updateButtons(){startBtn.disabled=wanted||!recognition;stopBtn.disabled=!wanted;}
-function cancelRetry(){if(restartTimer!==null){clearTimeout(restartTimer);restartTimer=null;}}
-function combine(a,b){return [a.trim(),b.trim()].filter(Boolean).join('\n');}
-function words(s){return s.trim().split(/\s+/).filter(Boolean);}
-// Remove only a substantial verbatim overlap at a recognition-session boundary.
-// Single repeated set numbers are retained because they may be intentional.
-function joinWithOverlap(a,b){
- const aw=words(a),bw=words(b);
- let overlap=0;
- for(let n=Math.min(aw.length,bw.length,35);n>=3;n--){
-  if(aw.slice(-n).join(' ').toLowerCase()===bw.slice(0,n).join(' ').toLowerCase()){overlap=n;break;}
- }
- return combine(a,bw.slice(overlap).join(' '));
-}
-function dedupeAdjacentResults(items){
- const out=[];
- for(const phrase of items){
-  const clean=phrase.trim();if(!clean)continue;
-  if(out.length&&out[out.length-1].toLowerCase()===clean.toLowerCase())continue;
-  out.push(clean);
- }
- return out;
-}
-function render(partial=''){
- // Do not re-add interim text as final; only committed results appear in the textarea.
- output.value=combine(committed,sessionFinal);
- interim.textContent=partial?'Hearing: '+partial:'';
-}
-function commitSession(){
- committed=joinWithOverlap(committed,sessionFinal);
- sessionFinal='';
- render();
-}
-function finish(title,detail='',kind=''){
- wanted=false;running=false;starting=false;cancelRetry();
- commitSession();updateButtons();setStatus(title,detail,kind);
-}
-function queueRestart(reason){
- if(!wanted||fatal)return;
- cancelRetry();
- if(retryCount>=MAX_RETRIES){finish('Recording stopped','Brave could not restart recognition after several attempts. Tap Start to try again.','error');return;}
- retryCount++;
- const wait=Math.min(350*retryCount,1800);
- setStatus('Reconnecting microphone…',reason+' Attempt '+retryCount+' of '+MAX_RETRIES+'. Some speech may be missed.','retry');
- restartTimer=setTimeout(()=>{restartTimer=null;if(wanted&&!running&&!starting)begin();},wait);
-}
-function begin(){
- if(!wanted||running||starting||!recognition)return;
- starting=true;
- sessionFinal='';seenFinals.clear();
- try{recognition.start();}catch(err){starting=false;queueRestart('Could not start: '+err.message+'.');}
-}
-if(!SR){
- setStatus('Speech recognition unavailable','Try Brave or Chrome on the HTTPS GitHub Pages website.','error');
- startBtn.disabled=true;
-}else{
- try{
- recognition=new SR();
- recognition.lang='en-US';
- recognition.continuous=true;
- recognition.interimResults=true;
- recognition.maxAlternatives=1;
- recognition.onstart=()=>{
-  starting=false;running=true;retryCount=0;
-  if(!wanted){recognition.stop();return;}
-  setStatus('● Listening — tap Stop when finished','Brave is currently listening.','live');
-  updateButtons();
- };
- recognition.onresult=(event)=>{
-  const partial=[];
-  // Results may be revised or resent. Keep one final per result index.
-  for(let i=0;i<event.results.length;i++){
-   const item=event.results[i];
-   const phrase=item[0]?.transcript?.trim()||'';
-   if(!phrase)continue;
-   if(item.isFinal){seenFinals.set(i,phrase);}
-   else partial.push(phrase);
-  }
-  const ordered=[...seenFinals.entries()].sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
-  sessionFinal=dedupeAdjacentResults(ordered).join(' ');
-  render(dedupeAdjacentResults(partial).join(' '));
-  if(wanted&&running)setStatus('● Listening — tap Stop when finished','Speech received; microphone remains active.','live');
- };
- recognition.onerror=(event)=>{
-  const code=event.error||'unknown';
-  if(!wanted)return;
-  if(['not-allowed','service-not-allowed','audio-capture','language-not-supported'].includes(code)){
-   fatal=true;
-   finish('Microphone or speech recognition blocked','Error: '+code+'. Check browser permissions and reload if needed.','error');
-  }else if(code==='aborted'){
-   setStatus('Recognition interrupted','Waiting for the browser to finish before reconnecting.','retry');
-  }else{
-   setStatus('Recognition interrupted','Error: '+code+'. Will attempt to reconnect.','retry');
-  }
- };
- recognition.onend=()=>{
-  running=false;starting=false;
-  commitSession();
-  if(wanted&&!fatal)queueRestart('The browser ended the listening session.');
-  else if(!wanted&&!fatal){updateButtons();setStatus('Stopped','Recording ended.');}
- };
- setStatus('Ready','Speech recognition API detected. Tap Start Recording.');
- }catch(err){recognition=null;setStatus('Initialization failed',err.message,'error');}
- updateButtons();
-}
-startBtn.addEventListener('click',()=>{
- if(!recognition||wanted)return;
- cancelRetry();fatal=false;retryCount=0;
- committed=output.value.trim();sessionFinal='';seenFinals.clear();interim.textContent='';
- wanted=true;updateButtons();
- setStatus('Starting microphone…','Waiting for Brave to begin listening.','retry');
- begin();
-});
-stopBtn.addEventListener('click',()=>{
- if(!wanted)return;
- wanted=false;cancelRetry();updateButtons();
- setStatus('Stopping…','Waiting for the final transcription.');
- if(running||starting){try{recognition.stop();}catch(err){finish('Stopped',err.message);}}
- else finish('Stopped','Recording stopped by you.');
-});
-clearBtn.addEventListener('click',()=>{
- committed='';sessionFinal='';seenFinals.clear();output.value='';interim.textContent='';
- if(wanted)setStatus('● Listening — tap Stop when finished','Text cleared; recording continues.','live');
- else setStatus('Text cleared','Ready for another test.');
-});
+const startButton=document.getElementById('start'),stopButton=document.getElementById('stop'),clearButton=document.getElementById('clear');
+const output=document.getElementById('output'),state=document.getElementById('state'),detail=document.getElementById('detail'),status=document.getElementById('status');
+let wanted=false,recognition=null,retryTimer=null,attempts=0,session=0;
+let saved='',finalByIndex=new Map(),interim='',sessionCommitted=false;
+const normalize=s=>String(s||'').trim().replace(/\s+/g,' ');
+function setStatus(title,message,kind=''){state.textContent=title;detail.textContent=message;status.className='status '+kind;}
+function buttons(){startButton.disabled=wanted||!SR;stopButton.disabled=!wanted;}
+function show(){const finalized=[...finalByIndex.entries()].sort((a,b)=>a[0]-b[0]).map(x=>x[1]).filter(Boolean).join(' ');const text=[saved,finalized,interim].filter(Boolean).join(' ');output.value=normalize(text);}
+function commitSession(){if(sessionCommitted)return;sessionCommitted=true;const finalized=[...finalByIndex.entries()].sort((a,b)=>a[0]-b[0]).map(x=>x[1]).filter(Boolean).join(' ');saved=normalize([saved,finalized].filter(Boolean).join(' '));finalByIndex.clear();interim='';show();}
+function cancelRetry(){if(retryTimer!==null){clearTimeout(retryTimer);retryTimer=null;}}
+function stopCompletely(message,kind=''){wanted=false;cancelRetry();commitSession();buttons();setStatus('Stopped',message,kind);}
+function launch(){if(!wanted)return;cancelRetry();const id=++session;sessionCommitted=false;finalByIndex.clear();interim='';let r;
+try{r=new SR();recognition=r;r.lang='en-US';r.continuous=true;r.interimResults=true;r.maxAlternatives=1;
+r.onstart=()=>{if(id!==session)return;attempts=0;setStatus('Listening','Speak now. Tap Stop when finished.','live');};
+r.onresult=e=>{if(id!==session)return;attempts=0;for(let i=0;i<e.results.length;i++){const result=e.results[i];if(result.isFinal)finalByIndex.set(i,normalize(result[0]?.transcript));}for(const key of [...finalByIndex.keys()]){if(key>=e.results.length)finalByIndex.delete(key);}const interimParts=[];for(let i=0;i<e.results.length;i++){if(!e.results[i].isFinal)interimParts.push(normalize(e.results[i][0]?.transcript));}interim=normalize(interimParts.join(' '));show();};
+r.onerror=e=>{if(id!==session)return;const code=e.error||'unknown';if(['not-allowed','service-not-allowed','audio-capture'].includes(code)){stopCompletely('Microphone or speech service unavailable: '+code,'error');try{r.abort();}catch(_){}}else{setStatus('Recognition interrupted','Browser reported: '+code,'wait');}};
+r.onend=()=>{if(id!==session)return;commitSession();recognition=null;if(!wanted){setStatus('Stopped','Recording stopped by you.');return;}if(attempts>=6){stopCompletely('Browser ended recognition repeatedly. Tap Start to retry.','error');return;}attempts++;setStatus('Reconnecting','Recognition ended. Restarting ('+attempts+'/6)…','wait');retryTimer=setTimeout(()=>{retryTimer=null;if(wanted)launch();},Math.min(400*attempts,1800));};
+r.start();setStatus('Starting','Requesting microphone…','wait');
+}catch(e){if(id!==session)return;recognition=null;commitSession();if(!wanted)return;if(attempts>=6){stopCompletely('Could not restart recognition: '+e.message,'error');return;}attempts++;setStatus('Reconnecting','Could not start: '+e.message,'wait');retryTimer=setTimeout(()=>{retryTimer=null;if(wanted)launch();},600*attempts);}}
+startButton.addEventListener('click',()=>{if(!SR||wanted)return;saved=normalize(output.value);wanted=true;attempts=0;buttons();launch();});
+stopButton.addEventListener('click',()=>{if(!wanted)return;wanted=false;cancelRetry();buttons();setStatus('Stopping','Waiting for final speech results…','wait');if(recognition){try{recognition.stop();}catch(e){commitSession();setStatus('Stopped','Recording stopped by you.');}}else{commitSession();setStatus('Stopped','Recording stopped by you.');}});
+clearButton.addEventListener('click',()=>{saved='';finalByIndex.clear();interim='';output.value='';if(!wanted)setStatus('Ready','Transcript cleared.');});
+if(!SR)setStatus('Unavailable','This browser does not support the Web Speech API.','error');buttons();
 })();
 </script>
 </body>
