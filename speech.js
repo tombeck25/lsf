@@ -25,6 +25,7 @@
     // Keep a stable best hypothesis per session rather than concatenating every event.
     const combined = [savedTranscript, sessionText].filter(Boolean).join('\n');
     $('transcript').value = combined;
+    if (window.shelfV8) window.shelfV8.scheduleParse();
   }
   function closeSession() {
     if (sessionText.trim()) savedTranscript = [savedTranscript, sessionText.trim()].filter(Boolean).join('\n');
@@ -161,6 +162,7 @@
     savedTranscript = ''; sessionText = ''; lastShown = '';
     $('transcript').value = ''; $('live').textContent = '';
     log('USER cleared transcript');
+    if (window.shelfV8) window.shelfV8.scheduleParse();
   });
   $('clearLog').addEventListener('click', () => { logLines.length = 0; $('log').textContent = ''; log('Log cleared'); });
   $('copyLog').addEventListener('click', async () => {
@@ -168,6 +170,7 @@
     try { await navigator.clipboard.writeText(data); $('copyLog').textContent = 'Copied!'; setTimeout(() => $('copyLog').textContent = 'Copy log', 1300); }
     catch(e) { log(`COPY failed: ${e.message}`); $('warn').textContent = 'Clipboard copy failed. Select the log manually.'; }
   });
-  log(`V7 ready; browser=${navigator.userAgent}`);
+  $('transcript').addEventListener('input', () => { if (window.shelfV8) window.shelfV8.scheduleParse(); });
+  log(`V8 ready; browser=${navigator.userAgent}`);
   if (!SpeechRecognition) $('warn').textContent = 'Speech recognition unavailable in this browser.';
 })();
